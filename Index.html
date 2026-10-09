@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Amelia - Segreteria KYD</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #121214;
+      color: #f0f0f2;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      justify-content: space-between;
+      padding: 24px 16px;
+      text-align: center;
+    }
+    header h1 { font-size: 32px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; }
+    header p { font-size: 16px; color: #a0a0ab; margin-top: 4px; }
+    
+    .status-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    
+    .mic-button {
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: #27272a;
+      border: 3px solid #3f3f46;
+      color: #ffffff;
+      font-size: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 0 30px rgba(0,0,0,0.5);
+      transition: all 0.3s ease;
+    }
+    .mic-button.listening {
+      background: #dc2626;
+      border-color: #f87171;
+      box-shadow: 0 0 40px rgba(220, 38, 38, 0.6);
+      animation: pulse 1.5s infinite;
+    }
+    .mic-button.processing {
+      background: #d97706;
+      border-color: #fbbf24;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+
+    #status { font-size: 20px; font-weight: 600; color: #e4e4e7; }
+    #transcript { font-size: 22px; color: #a1a1aa; font-style: italic; min-height: 60px; padding: 0 10px; }
+    #response { font-size: 24px; font-weight: 600; color: #38bdf8; min-height: 80px; padding: 0 10px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Amelia</h1>
+    <p>Segreteria KYD</p>
+  </header>
+
+  <div class="status-container">
+    <div id="micBtn" class="mic-button" onclick="toggleListening()">🎙️</div>
+    <div id="status">Tocca il microfono per parlare</div>
+    <div id="transcript"></div>
+    <div id="response"></div>
+  </div>
+
+  <script>
+    // INSERISCI QUI L'URL DELLA TUA WEB APP GOOGLE APPS SCRIPT
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbzbXLaxmlpuNauGCdF0SNWwWFCB91-15SjmKeaicht9rgoXvZJM9FZXSykZ7tlRN2pUuA/exec";
+
+    let recognition;
+    let isListening = false;
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.lang = 'it-IT';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        isListening = true;
+        updateUI('listening', 'Ti ascolto...', '🔴');
+      };
+
+      recognition.onresult = (event) => {
+        let currentText = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          currentText += event.results[i][0].transcript;
+        }
+        document.getElementById('transcript').innerText = '"' + currentText + '"';
+
+        if (event.results[0].isFinal) {
+          inviaComando(currentText);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Errore audio:", event.error);
+        updateUI('idle', 'Errore ascolto. Riprova.', '🎙️');
+        isListening = false;
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+      };
+    } else {
+      document.getElementById('status').innerText = "Riconoscimento vocale non supportato.";
+    }
+
+    function toggleListening() {
+      if (isListening) {
+        recognition.stop();
+      } else {
+        document.getElementById('response').innerText = '';
+        document.getElementById('transcript').innerText = '';
+        recognition.start();
+      }
+    }
+
+    async function inviaComando(testo) {
+      updateUI('processing', 'Elaborazione in corso...', '⚙️');
+      
+      // Gestione saluti e cortesia veloce locale
+      const pulito = testo.toLowerCase().trim();
+      if (pulito.includes("ciao amelia") || pulito === "ciao") {
+        parlaEVisualizza("Ciao Paolo! Tutto bene, cosa posso fare per te?");
+        return;
+      }
+
+      try {
+        const res = await fetch(GAS_URL, {
+          method: 'POST',
+          body: JSON.stringify({ comando: testo })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+          parlaEVisualizza(data.response);
+        } else {
+          parlaEVisualizza("Si è verificato un errore nell'elaborazione del comando.");
+        }
+      } catch (err) {
+        parlaEVisualizza("Non sono riuscita a collegarmi al sistema.");
+      }
+    }
+
+    function parlaEVisualizza(testo) {
+      document.getElementById('response').innerText = testo;
+      updateUI('idle', 'Pronta', '🎙️');
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(testo);
+        utterance.lang = 'it-IT';
+        utterance.rate = 1.0;
+        
+        // Quando ha finito di parlare, riattiva l'ascolto automatico
+        utterance.onend = () => {
+          toggleListening();
+        };
+
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    function updateUI(state, text, icon) {
+      const btn = document.getElementById('micBtn');
+      const status = document.getElementById('status');
+      btn.className = 'mic-button ' + (state === 'idle' ? '' : state);
+      btn.innerText = icon;
+      status.innerText = text;
+    }
+  </script>
+</body>
+</html>
